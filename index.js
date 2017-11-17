@@ -1,87 +1,84 @@
-var through = require('through');
+var stream = require('stream');
 var bz2 = require('./lib/bzip2');
 var bitIterator = require('./lib/bit_iterator');
 
-module.exports = unbzip2Stream;
+class Unbzip2Stream extends stream.Transform {
+    constructor(options) {
 
-function unbzip2Stream() {
-    var bufferQueue = [];
-    var hasBytes = 0;
-    var blockSize = 0;
-    var broken = false;
-    var done = false;
-    var bitReader = null;
+        super(options);
 
-    function decompressBlock(push){
-        if(!blockSize){
-            blockSize = bz2.header(bitReader);
-            //console.error("got header of", blockSize);
+        this.queue = [];
+        this.hasBytes = 0;
+        this.blockSize = 0;
+        this.done = false;
+        this.bitReader = null;
+
+    }
+
+    _decompressAndQueue() {
+        if (this.destroyed)
+            return false;
+        try {
+            return this._decompressBlock();
+        } catch( error ) {
+            this.emit('error', error);
+            return false;
+        }
+    }
+
+    _decompressBlock() {
+        if(!this.blockSize) {
+            this.blockSize = bz2.header(this.bitReader);
             return true;
-        }else{
-            var bufsize = 100000 * blockSize;
-            var buf = new Int32Array(bufsize);
-            
-            var chunk = [];
-            var f = function(b) {
-                chunk.push(b);
+        } else {
+            var length = 100000 * this.blockSize;
+            var buffer = new Int32Array(length);
+            var bytes = [];
+            var push = (value) => {
+                bytes.push(value)
             };
 
-            var done = bz2.decompress(bitReader, f, buf, bufsize);        
-            if (done) {
-                push(null);
-                //console.error('done');
+            var done = bz2.decompress(this.bitReader, push, buffer, length);
+
+            if(done) {
+                this.push(null);
                 return false;
-            }else{
-                //console.error('decompressed', chunk.length,'bytes');
-                push(new Buffer(chunk));
+            } else {
+                this.push(Buffer.from(bytes));
                 return true;
             }
         }
     }
 
-    var outlength = 0;
-    function decompressAndQueue(stream) {
-        if (broken) return;
-        try {
-            return decompressBlock(function(d) {
-                stream.queue(d);
-                if (d !== null) {
-                    //console.error('write at', outlength.toString(16));
-                    outlength += d.length;
-                } else {
-                    //console.error('written EOS');
-                }
+    _transform(chunk, encoding, next) {
+        this.queue.push(chunk);
+        this.hasBytes += chunk.length;
+
+        if(this.bitReader == null) {
+            this.bitReader = bitIterator(() => {
+                return this.queue.shift();
             });
-        } catch(e) {
-            //console.error(e);
-            stream.emit('error', e);
-            broken = true;
-            return false;
         }
+
+        while (this.hasBytes - this.bitReader.bytesRead + 1 >= ((25000 + 100000 * this.blockSize) || 4)){
+            // console.error('decompressing with', hasBytes - bitReader.bytesRead + 1, 'bytes in buffer');
+            if (!this.done) this.done = !this._decompressAndQueue();
+            if (this.done) break;
+        }
+
+        process.nextTick(next);
     }
 
-    return through(
-        function write(data) {
-            //console.error('received', data.length,'bytes in', typeof data);
-            bufferQueue.push(data);
-            hasBytes += data.length;
-            if (bitReader === null) {
-                bitReader = bitIterator(function() {
-                    return bufferQueue.shift();
-                });
-            }
-            while (hasBytes - bitReader.bytesRead + 1 >= ((25000 + 100000 * blockSize) || 4)){
-                //console.error('decompressing with', hasBytes - bitReader.bytesRead + 1, 'bytes in buffer');
-                if (!done) done = !decompressAndQueue(this);
-                if (done) break;
-            }
-        },
-        function end(x) {
-            //console.error(x,'last compressing with', hasBytes, 'bytes in buffer');
-            if (!done) {
-                while(decompressAndQueue(this));
-            }
+    _flush(next) {
+        if(!this.done) {
+            while(this._decompressAndQueue())
+                continue;
         }
-    );
+    }
 }
 
+module.exports = function unbzip2Stream(options) {
+    return new Unbzip2Stream(options);
+};
+
+module.exports.Stream = Unbzip2Stream;
