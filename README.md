@@ -4,6 +4,8 @@ unbzip2-stream
 ===
 streaming bzip2 decompressor in pure JS for Node and browserify.
 
+This is [resin-io-modules's fork](https://github.com/resin-io-modules/unbzip2-stream) of the [original unbzip2-stream](https://github.com/regular/unbzip2-stream) which added in normal streams. This solved a lot of issues with flushing.
+
 Buffers
 ---
 When browserified, the stream emits instances of [feross/buffer](https://github.com/feross/buffer) instead of raw Uint8Arrays to have a consistant API across browsers and Node.
@@ -19,17 +21,6 @@ fs.createReadStream('./test.bz2').pipe(bz2()).pipe(process.stdout);
 ```
 
 Also see [test/browser/download.js](https://github.com/regular/unbzip2-stream/blob/master/test/browser/download.js) for an example of decompressing a file while downloading.
-
-Or, using a <script> tag
----
-
-```
-<script src="https://npm-cdn.info/unbzip2-stream/dist/unbzip2-stream.min.js"></script>
-<script>
-    var myStream = window.unbzip2Stream();
-    // now pipe stuff through it (see above)
-</script>
-```
 
 Tests
 ---
