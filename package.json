@@ -1,5 +1,5 @@
 {
-  "name": "unbzip2-stream",
+  "name": "@commaai/unbzip2-stream",
   "version": "1.2.5",
   "description": "streaming unbzip2 implementation in pure javascript for node and browsers",
   "keywords": [
